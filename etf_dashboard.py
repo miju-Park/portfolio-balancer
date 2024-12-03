@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import sqlite3
 import plotly.express as px
+from utils import get_month_format
 from datetime import datetime
 from pension import info as pension_info
 
@@ -19,50 +20,50 @@ class PortfolioDashboard:
         # 개인연금 테이블
         c.execute('''
             CREATE TABLE IF NOT EXISTS personal_pension (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                date TEXT,
-                total_value REAL,
-                deposit REAL
+                date TEXT PRIMARY KEY,
+                total_value REAL
             )
         ''')
         
         # 퇴직연금 테이블
         c.execute('''
             CREATE TABLE IF NOT EXISTS retirement_pension (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                date TEXT,
-                total_value REAL,
-                deposit REAL
+                date TEXT PRIMARY KEY,
+                total_value REAL
             )
         ''')
         
         # 코인 테이블
         c.execute('''
             CREATE TABLE IF NOT EXISTS cryptocurrency (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                date TEXT,
-                total_value REAL,
-                deposit REAL
+                date TEXT PRIMARY KEY,
+                total_value REAL
             )
         ''')
         
         conn.commit()
         conn.close()
 
-    def save_portfolio_history(self, portfolio_type, total_value, deposit):
+    def save_portfolio_history(self, portfolio_type, total_value):
         """포트폴리오 히스토리 저장"""
         conn = sqlite3.connect(self.db_name)
         c = conn.cursor()
-        current_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        current_date = get_month_format()
         
         table_name = {
             '개인연금': 'personal_pension',
             '퇴직연금': 'retirement_pension',
             '코인': 'cryptocurrency'
         }.get(portfolio_type)
+    
+        query = f'''
+        INSERT INTO {table_name} (date, total_value) 
+        VALUES (?, ?) 
+        ON CONFLICT(date) DO UPDATE SET 
+        total_value = excluded.total_value
+        '''
         
-        c.execute(f"INSERT INTO {table_name} (date, total_value, deposit) VALUES (?, ?, ?)", 
-                  (current_date, total_value, deposit))
+        c.execute(query,(current_date, total_value))
         conn.commit()
         conn.close()
 
@@ -229,37 +230,43 @@ def main():
             results, current_portfolio_value = calculate_rebalancing(etf_list, total_deposit)
             
             # Save portfolio history
-            portfolio_dashboard.save_portfolio_history(portfolio_type, current_portfolio_value + total_deposit, total_deposit)
+            portfolio_dashboard.save_portfolio_history(portfolio_type, current_portfolio_value + total_deposit)
             
             # Display results
             results_df = pd.DataFrame(results)
+
+            # 컬럼명 변경
+            results_df = results_df.rename(columns={
+                'name': 'ETF 이름', 
+                'current_ratio': '현재 비중', 
+                'target_ratio': '목표 비중', 
+                'qty_to_trade': '거래 수량'
+            })
             
             st.subheader(f'{portfolio_type} 리밸런싱 결과')
             st.dataframe(
-                results_df[['name', 'current_value', 'current_qty', 'current_ratio', 'target_ratio', 'qty_to_trade']].style.format({
-                    'current_value': '{:,.0f}원',
-                    'current_ratio': '{:.2%}',
-                    'target_ratio': '{:.2%}',
-                    'qty_to_trade': '{:,.0f}'
+                results_df[['ETF 이름', '목표 비중', '현재 비중','거래 수량']].style.format({
+                    '현재 비중': '{:.2%}',
+                    '목표 비중': '{:.2%}',
+                    '거래 수량': '{:,.0f}'
                 }),
                 use_container_width=True
             )
+        # Portfolio history graph
             
-            # Portfolio history graph
-            
-            st.subheader(f'{portfolio_type} 누적 가치 히스토리')
-            
-            history_df = portfolio_dashboard.get_portfolio_history(portfolio_type)
-            
-            if not history_df.empty:
-                history_df['date'] = pd.to_datetime(history_df['date'])
-                fig = px.line(history_df, x='date', y='total_value',
-                              title=f'{portfolio_type} 총 가치 추이',
-                              labels={'total_value': '총 가치', 'date': '날짜'},
-                              hover_data={'deposit': ':.0f원', 'total_value': ':.0f원'})
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.write("아직 포트폴리오 기록이 없습니다.")   # 각 탭에 대한 포트폴리오 대시보드 생성
+        st.subheader(f'{portfolio_type} 누적 가치 히스토리')
+        
+        history_df = portfolio_dashboard.get_portfolio_history(portfolio_type)
+        st.write(history_df)
+        
+        if not history_df.empty:
+            history_df['date'] = pd.to_datetime(history_df['date'] + '-01')
+            fig = px.line(history_df, x='date', y='total_value',
+                        title=f'{portfolio_type} 총 가치 추이',
+                        labels={'total_value': '총 가치', 'date': '날짜'})
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.write("아직 포트폴리오 기록이 없습니다.")   # 각 탭에 대한 포트폴리오 대시보드 생성
     
     create_portfolio_tab(tab1, '개인연금')
     create_portfolio_tab(tab2, '퇴직연금')
