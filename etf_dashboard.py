@@ -5,7 +5,7 @@ import sqlite3
 import plotly.express as px
 from utils import get_month_format
 from datetime import datetime
-from pension import info as pension_info
+from constant import pension_info, irp_info
 
 class PortfolioDashboard:
     def __init__(self, db_name='investment_portfolio.db'):
@@ -64,6 +64,7 @@ class PortfolioDashboard:
         '''
         
         c.execute(query,(current_date, total_value))
+        c.execute(query,('2024-11', 0))
         conn.commit()
         conn.close()
 
@@ -181,12 +182,7 @@ def main():
     # 기본 ETF 설정들
     default_etfs = {
         '개인연금': pension_info,
-        '퇴직연금': [
-            {'name': '국내대형주 ETF', 'current_price': 55000, 'current_qty': 8, 'target_ratio': 0.4},
-            {'name': '채권 ETF', 'current_price': 42000, 'current_qty': 10, 'target_ratio': 0.3},
-            {'name': '해외주식 ETF', 'current_price': 65000, 'current_qty': 5, 'target_ratio': 0.2},
-            {'name': '중소형주 ETF', 'current_price': 48000, 'current_qty': 6, 'target_ratio': 0.1}
-        ],
+        '퇴직연금': irp_info,
         '코인': [
             {'name': 'Bitcoin', 'current_price': 60000000, 'current_qty': 0.1, 'target_ratio': 0.5},
             {'name': 'Ethereum', 'current_price': 4000000, 'current_qty': 2, 'target_ratio': 0.3},
