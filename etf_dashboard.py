@@ -64,7 +64,6 @@ class PortfolioDashboard:
         '''
         
         c.execute(query,(current_date, total_value))
-        c.execute(query,('2024-11', 0))
         conn.commit()
         conn.close()
 
@@ -256,7 +255,7 @@ def main():
         st.write(history_df)
         
         if not history_df.empty:
-            history_df['date'] = pd.to_datetime(history_df['date'] + '-01')
+            history_df['date'] = pd.to_datetime(history_df['date'])
             fig = px.line(history_df, x='date', y='total_value',
                         title=f'{portfolio_type} 총 가치 추이',
                         labels={'total_value': '총 가치', 'date': '날짜'})
