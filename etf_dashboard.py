@@ -4,8 +4,130 @@ import numpy as np
 import sqlite3
 import plotly.express as px
 from utils import get_month_format
-from datetime import datetime
-from constant import pension_info, irp_info
+
+class PortfolioInfo:
+    def __init__(self, db_name='portfolio_info.db'):
+        self.db_name = db_name
+        self.init_database()
+
+    def init_database(self):
+        """각 투자 유형별 데이터베이스 테이블 초기화"""
+        conn = sqlite3.connect(self.db_name)
+        c = conn.cursor()
+        
+        # 개인연금 테이블
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS personal_pension_info (
+                code TEXT PRIMARY KEY,
+                name TEXT,
+                current_qty INTEGER,
+                current_price INTEGER,
+                target_ratio REAL
+            )
+        ''')
+        
+        # 퇴직연금 테이블
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS retirement_pension_info (
+                code TEXT PRIMARY KEY,
+                name TEXT,
+                current_qty INTEGER,
+                current_price INTEGER,
+                target_ratio REAL
+            )
+        ''')
+        
+        # 코인 테이블 TBD
+        # c.execute('''
+        #     CREATE TABLE IF NOT EXISTS cryptocurrency (
+        #         date TEXT PRIMARY KEY,
+        #         total_value REAL
+        #     )
+        # ''')
+
+        # 삽입할 데이터
+        data = [
+            {'name':'TIGER 미국S&P500선물', "code":'143850',"current_price":64580, "current_qty":262, "target_ratio":0.25},
+            {'name':'KODEX 골드선물', "code":'132030',"current_price":15970, "current_qty":424, "target_ratio":0.1},
+            {'name':'TIGER 단기통안채', "code":'157450',"current_price":109150, "current_qty":80, "target_ratio":0.13},
+            {'name':'KODEX 국채선물 10년', "code":'152380',"current_price":69450, "current_qty":125, "target_ratio":0.13},
+            {'name':'신흥국 MSCI', "code":'195980',"current_price":9780, "current_qty":1667, "target_ratio":0.25},
+            {'name':'KODEX 미국10년국채선물', "code":'308620',"current_price":11890, "current_qty":752, "target_ratio":0.13}
+        ]
+
+        pension_data= [
+            {'name':'TIGER 미국S&P500', "code":'36075',"current_price":21260,
+                "current_qty":115, "target_ratio":0.25},
+            {'name':'ACE KRX금현물', "code":'411060',"current_price":17160,
+                "current_qty":125, "target_ratio":0.25},
+            {'name':'KOSEF 국고채10년', "code":'148070',"current_price":119350,
+                "current_qty":29, "target_ratio":0.25},
+            {'name':'KODEX 200 미국채혼합', "code":'284430',"current_price":12740,
+                "current_qty":420, "target_ratio":0.25},
+            {'name':'KOSEF 200 TR', "code":'294400',"current_price":41735,
+                "current_qty":3, "target_ratio":0.25}
+        ]
+
+        # 데이터 삽입 또는 업데이트
+        for item in data:
+            c.execute('''
+                INSERT OR REPLACE INTO personal_pension_info (code, name, current_price, current_qty, target_ratio)
+                VALUES (:code, :name, :current_price, :current_qty, :target_ratio)
+            ''', item)
+
+        for item in pension_data:
+            c.execute('''
+                INSERT OR REPLACE INTO retirement_pension_info (code, name, current_price, current_qty, target_ratio)
+                VALUES (:code, :name, :current_price, :current_qty, :target_ratio)
+            ''', item)
+
+        
+        conn.commit()
+        conn.close()
+    
+    def update_portfolio_info(self, portfolio_type, data):
+        """포트폴리오 히스토리 저장"""
+        conn = sqlite3.connect(self.db_name)
+        c = conn.cursor()
+        
+        table_name = {
+            '개인연금': 'personal_pension_info',
+            '퇴직연금': 'retirement_pension_info',
+            '코인': ''
+        }.get(portfolio_type)
+    
+        query = f'''
+        INSERT OR REPLACE INTO {table_name} (code, name, current_price, current_qty, target_ratio)
+    VALUES (:code, :name, :current_price, :current_qty, :target_ratio)
+        '''
+        for item in data:
+            c.execute(query,item)
+        conn.commit()
+        conn.close()
+    
+    def get_portfolio_info(self, portfolio_type):
+        """포트폴리오 히스토리 불러오기"""
+        conn = sqlite3.connect(self.db_name)
+        table_name = {
+            '개인연금': 'personal_pension_info',
+            '퇴직연금': 'retirement_pension_info',
+            '코인': 'cryptocurrency'
+        }.get(portfolio_type)
+
+
+        cursor = conn.cursor()
+        cursor.execute(f"SELECT * FROM {table_name}")
+        rows = cursor.fetchall()
+
+        # 컬럼 이름 정의
+        column_names = ['code', 'name', 'current_qty', 'current_price', 'target_ratio']
+
+        # 데이터를 딕셔너리 리스트로 변환
+        data_list = [dict(zip(column_names,row)) for row in rows]
+
+        conn.close()
+        
+        return data_list
 
 class PortfolioDashboard:
     def __init__(self, db_name='investment_portfolio.db'):
@@ -110,7 +232,8 @@ def calculate_current_ratio(info):
     
     # Add current_ratio to each item
     for item in info:
-        item['current_ratio'] = (item['current_price'] * item['current_qty']) / total_current_value
+        current_value = (item['current_price'] * item['current_qty'])/ total_current_value
+        item['current_value'] = current_value
     
     return info
 
@@ -149,6 +272,7 @@ def calculate_rebalancing(etfs, total_deposit):
     sorted_etfs = sorted(etf_values, key=lambda x: abs(x['value_difference']), reverse=True)
 
     rebalancing_results = []
+    portfolio_update_info = []
     remaining_deposit = total_deposit
     for item in sorted_etfs:
         etf = item['etf']
@@ -171,17 +295,29 @@ def calculate_rebalancing(etfs, total_deposit):
             'trade_type': '매수' if qty_to_trade > 0 else '매도' if qty_to_trade < 0 else '유지'
         }
         rebalancing_results.append(result)
+        
+        portfolio_update_info.append({
+            'name': etf['name'],
+            'code': etf['code'],
+            'current_price': etf['current_price'],
+            'current_qty': etf['current_qty']+ qty_to_trade,
+            'current_value': item['current_value'],
+            'current_ratio': item['current_ratio'],
+            'target_ratio': item['target_ratio'],
+        })
+        
 
-    return rebalancing_results, sum(etf['current_price'] * etf['current_qty'] for etf in etfs)
+    return rebalancing_results, sum(etf['current_price'] * etf['current_qty'] for etf in etfs), portfolio_update_info
 
 def main():
     st.set_page_config(layout="wide", page_title="투자 포트폴리오 대시보드")
     portfolio_dashboard = PortfolioDashboard()
+    portfolio_info = PortfolioInfo()
 
     # 기본 ETF 설정들
     default_etfs = {
-        '개인연금': pension_info,
-        '퇴직연금': irp_info,
+        '개인연금': portfolio_info.get_portfolio_info('개인연금'),
+        '퇴직연금': portfolio_info.get_portfolio_info('퇴직연금'),
         '코인': [
             {'name': 'Bitcoin', 'current_price': 60000000, 'current_qty': 0.1, 'target_ratio': 0.5},
             {'name': 'Ethereum', 'current_price': 4000000, 'current_qty': 2, 'target_ratio': 0.3},
@@ -222,10 +358,13 @@ def main():
         if st.button(f'{portfolio_type} 리밸런싱 실행'):
             etf_list = edited_df.to_dict('records')
             # Recalculate rebalancing using the edited dataframe
-            results, current_portfolio_value = calculate_rebalancing(etf_list, total_deposit)
+            results, current_portfolio_value, update_portfolio_info = calculate_rebalancing(etf_list, total_deposit)
             
             # Save portfolio history
             portfolio_dashboard.save_portfolio_history(portfolio_type, current_portfolio_value + total_deposit)
+
+            # Update portfolio info
+            portfolio_info.update_portfolio_info(portfolio_type, update_portfolio_info)
             
             # Display results
             results_df = pd.DataFrame(results)
